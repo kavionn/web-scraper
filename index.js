@@ -1537,9 +1537,7 @@
 	}
 
 	function endDrag() {
-		if (!isDrag) return;
 		isDrag = false;
-		panel.style.transition = "left .25s ease";
 	}
 
 	header.addEventListener("mousedown", startDrag);
