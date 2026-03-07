@@ -1540,12 +1540,6 @@
 		if (!isDrag) return;
 		isDrag = false;
 		panel.style.transition = "left .25s ease";
-		const rect = panel.getBoundingClientRect();
-		if (rect.left < 30 || window.innerWidth - rect.right < 30) {
-			panel.style.left = rect.left + rect.width / 2 < window.innerWidth / 2 ?
-				-(rect.width - 40) + "px" :
-				(window.innerWidth - 40) + "px";
-		}
 	}
 
 	header.addEventListener("mousedown", startDrag);
