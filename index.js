@@ -1,14 +1,14 @@
 /**
  * Web Panel by Hann Universe
- * Version : 1.1.5
- * CDN     : https://cdn.universe.my.id/web-panel/v1.1.5/web-panel.js
+ * Version : 1.1.8
+ * CDN     : https://cdn.universe.my.id/web-panel/v1.1.8/web-panel.js
  * Latest  : https://cdn.universe.my.id/web-panel/latest/web-panel.js
  * Changelog: https://cdn.universe.my.id/web-panel/manifest.json
  */
 (function() {
 	if (document.getElementById("web-panel-dev")) return;
 
-	const VERSION = "1.1.5";
+	const VERSION = "1.1.8";
 
 	const networkLog = [];
 
@@ -182,7 +182,7 @@
 
 	registerPlugin({
 		id: "cookie",
-		label: "Get Cookie",
+		label: "Cookie Viewer",
 		color: "#1a6e2e",
 		fetchData() {
 			const raw = document.cookie;
@@ -239,7 +239,7 @@
 
 	registerPlugin({
 		id: "sitekey",
-		label: "🔑 Deep Scan Sitekey",
+		label: "Get Sitekey V1",
 		color: "#6a1b9a",
 		async fetchData() {
 			const results = [];
@@ -539,7 +539,7 @@
 			});
 
 			if (!uniqueResults.length) {
-				return "=== DEEP SCAN RESULTS ===\n\nNo sitekeys found.";
+				return "=== DEEP SCAN RESULTS ===\n\nNo sitekeys found.\n\nScanned:\n- Main document HTML & inline scripts\n- All iframes (including cross-origin)\n- Shadow DOM trees\n- External JS/CSS files\n- Runtime JavaScript objects\n- Web Storage (localStorage/sessionStorage)";
 			}
 
 			const grouped = {};
@@ -572,7 +572,7 @@
 
 	registerPlugin({
 		id: "cf-intercept",
-		label: "🛡️ CF Intercept",
+		label: "Get Sitekey V2",
 		color: "#e65100",
 
 		captured: [],
@@ -697,7 +697,7 @@
 			this.installHook();
 
 			if (this.captured.length === 0) {
-				return "⏳ Menunggu challenge...\n\nga muncul atau ga kedownload sitekey nya? refresh lalu cepet buka panel dan pencet button cf intercept";
+				return "⏳ Menunggu challenge...\n\nga muncul atau ga kedownload sitekey nya? refresh lalu cepet buka panel dan pencet button cf intercept\n\nIt didn’t appear or the sitekey didn’t get downloaded? Refresh the page, then quickly open the panel and press the CF Intercept button.";
 			}
 
 			let out = `=== CAPTURED (${this.captured.length}) ===\n\n`;
@@ -839,139 +839,1083 @@
 
 	registerPlugin({
 		id: "network",
-		label: "🌐 Network",
+		label: "Network Monitor",
 		color: "#00695c",
+
+		_searchQuery: "",
+		_caseSensitive: false,
+		_useRegex: false,
+		_allMatches: [],
+		_currentMatchIdx: 0,
+
+		_buildSearchPattern(query) {
+			const flags = this._caseSensitive ? "g" : "gi";
+			if (this._useRegex) return new RegExp(query, flags);
+			const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+			return new RegExp(escaped, flags);
+		},
 
 		fetchData() {
 			if (!networkLog.length) {
 				return "No network requests captured yet.\n\nNote: Interceptor must be loaded before requests are made.\n\nTry refreshing the page with this panel open, or wait for new requests.";
 			}
 
-			let out = `=== NETWORK LOG (${networkLog.length} requests) ===\n\n`;
-			out += "💡 Click 'Download All' to save each request as JSON file\n\n";
-
-			const recent = networkLog.slice(-50).reverse();
-
-			recent.forEach((req, i) => {
-				const idx = networkLog.length - i;
-				const time = new Date(req.timestamp || Date.now()).toLocaleTimeString();
-				const hasResponse = req.responseStatus ? ` [${req.responseStatus}]` : ' [pending...]';
-
-				out += `── [${idx}] ${req.type.toUpperCase()} ${req.method}${hasResponse} ── ${time}\n`;
-				out += `  URL: ${req.url}\n`;
-
-				if (req.params && Object.keys(req.params).length > 0) {
-					out += `  Query Params (${Object.keys(req.params).length}):\n`;
-					Object.entries(req.params).forEach(([k, v]) => {
-						out += `    ${k}: ${String(v).slice(0, 60)}\n`;
-					});
-				}
-
-				const reqHeaderCount = Object.keys(req.headers || {}).length;
-				if (reqHeaderCount > 0) {
-					out += `  Request Headers (${reqHeaderCount}):\n`;
-					Object.entries(req.headers).forEach(([k, v]) => {
-						const isSensitive = /authorization|token|key|secret|password|cookie/i.test(k);
-						const valStr = String(v);
-						const display = isSensitive ?
-							`${valStr.slice(0, 15)}... [REDACTED]` :
-							valStr.slice(0, 60);
-						out += `    ${k}: ${display}\n`;
-					});
-				}
-
-				if (req.responseHeaders && Object.keys(req.responseHeaders).length > 0) {
-					out += `  Response Headers (${Object.keys(req.responseHeaders).length}):\n`;
-					Object.entries(req.responseHeaders).forEach(([k, v]) => {
-						out += `    ${k}: ${String(v).slice(0, 60)}\n`;
-					});
-				}
-
-				if (req.body) {
-					const bodyStr = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
-					if (bodyStr && bodyStr !== "null" && bodyStr !== "undefined") {
-						const preview = bodyStr.slice(0, 100) + (bodyStr.length > 100 ? `... (${bodyStr.length} chars)` : '');
-						out += `  Request Body: ${preview}\n`;
-					}
-				}
-
-				if (req.responseBody) {
-					const respStr = typeof req.responseBody === 'string' ?
-						req.responseBody :
-						JSON.stringify(req.responseBody);
-					const preview = respStr.slice(0, 100) + (respStr.length > 100 ? `... (${respStr.length} chars)` : '');
-					out += `  Response Body: ${preview}\n`;
-				}
-
-				out += `\n`;
-			});
-
-			if (networkLog.length > 50) {
-				out += `\n... and ${networkLog.length - 50} more requests (showing last 50)\n`;
+			if (this._allMatches.length > 0) {
+				return this._renderCurrentMatch();
 			}
 
+			let out = `=== NETWORK LOG (${networkLog.length} requests) ===\n\n`;
+			out += "💡 Click 'Search' to find requests · 'Download' to export\n\n";
+
+			networkLog.forEach((req, idx) => {
+				out += this._formatRequest(req, idx);
+				out += "\n";
+			});
+
+			out += "─".repeat(60);
 			return out.trim();
 		},
 
-		downloadAll() {
+		_formatRequest(req, idx) {
+			const time = new Date(req.timestamp || Date.now()).toLocaleTimeString();
+			const status = req.responseStatus ? ` [${req.responseStatus}]` : " [pending]";
+			const duration = req.responseTimestamp && req.timestamp ?
+				` ${req.responseTimestamp - req.timestamp}ms` :
+				"";
+
+			let out = `${"─".repeat(60)}\n`;
+			out += `[${idx + 1}] ${req.type.toUpperCase()} ${req.method}${status}${duration} · ${time}\n`;
+			out += `URL    : ${req.url}\n`;
+
+			const params = req.params || {};
+			if (Object.keys(params).length) {
+				out += `Params (${Object.keys(params).length}):\n`;
+				Object.entries(params).forEach(([k, v]) => {
+					out += `  ${k}: ${String(v).slice(0, 80)}\n`;
+				});
+			}
+
+			const reqHeaders = req.headers || {};
+			if (Object.keys(reqHeaders).length) {
+				out += `Request Headers (${Object.keys(reqHeaders).length}):\n`;
+				Object.entries(reqHeaders).forEach(([k, v]) => {
+					out += `  ${k}: ${String(v).slice(0, 80)}\n`;
+				});
+			}
+
+			const resHeaders = req.responseHeaders || {};
+			if (Object.keys(resHeaders).length) {
+				out += `Response Headers (${Object.keys(resHeaders).length}):\n`;
+				Object.entries(resHeaders).forEach(([k, v]) => {
+					out += `  ${k}: ${String(v).slice(0, 80)}\n`;
+				});
+			}
+
+			if (req.body != null) {
+				const bodyStr = typeof req.body === "string" ? req.body : JSON.stringify(req.body);
+				if (bodyStr && bodyStr !== "null") {
+					const preview = bodyStr.length > 200 ? `${bodyStr.slice(0, 200)}...` : bodyStr;
+					out += `Request Body: ${preview}\n`;
+				}
+			}
+
+			if (req.responseBody != null) {
+				const respStr = typeof req.responseBody === "string" ? req.responseBody : JSON.stringify(req.responseBody);
+				if (respStr && respStr !== "null") {
+					const preview = respStr.length > 200 ? `${respStr.slice(0, 200)}...` : respStr;
+					out += `Response Body: ${preview}\n`;
+				}
+			}
+
+			return out;
+		},
+
+		_renderCurrentMatch() {
+			if (!this._allMatches.length) return null;
+
+			const match = this._allMatches[this._currentMatchIdx];
+			const req = networkLog[match.reqIdx];
+
+			const time = new Date(req.timestamp || Date.now()).toLocaleTimeString();
+			const status = req.responseStatus ? ` [${req.responseStatus}]` : " [pending]";
+			const duration = req.responseTimestamp && req.timestamp ?
+				` ${req.responseTimestamp - req.timestamp}ms` :
+				""
+                
+			const fileDiv = document.createElement("div");
+			Object.assign(fileDiv.style, {
+				marginBottom: "12px",
+				border: "1px solid #2a2a2a",
+				borderRadius: "6px",
+				overflow: "hidden",
+				background: "#161616"
+			});
+            
+			const hdr = document.createElement("div");
+			Object.assign(hdr.style, {
+				background: "#212121",
+				padding: "6px 10px",
+				display: "flex",
+				flexDirection: "column",
+				gap: "4px",
+				borderBottom: "1px solid #333",
+			});
+
+			const hdrTop = document.createElement("div");
+			Object.assign(hdrTop.style, {
+				display: "flex",
+				justifyContent: "space-between",
+				alignItems: "center"
+			});
+            
+			const typeBadge = document.createElement("span");
+			typeBadge.textContent = req.type.toUpperCase();
+			Object.assign(typeBadge.style, {
+				fontSize: "9px",
+				fontWeight: "bold",
+				padding: "2px 7px",
+				borderRadius: "3px",
+				letterSpacing: "0.8px",
+				textTransform: "uppercase",
+				background: req.type === "fetch" ? "#00695c" : "#bf360c",
+				color: "#fff",
+			});
+            
+			const matchCounter = document.createElement("span");
+			matchCounter.textContent = `${this._currentMatchIdx + 1} / ${this._allMatches.length}`;
+			Object.assign(matchCounter.style, {
+				fontSize: "10px",
+				color: "#f9a825",
+				fontWeight: "bold"
+			});
+
+			hdrTop.append(typeBadge, matchCounter);
+
+			const urlEl = document.createElement("div");
+			urlEl.textContent = req.url;
+			Object.assign(urlEl.style, {
+				fontSize: "10px",
+				color: "#64b5f6",
+				wordBreak: "break-all",
+				fontFamily: "monospace",
+				lineHeight: "1.4",
+			});
+			const metaEl = document.createElement("div");
+			metaEl.textContent = `${req.method}${status}${duration} · ${time} · Field: ${match.field} · Line: ${match.lineNumber}`;
+			Object.assign(metaEl.style, {
+				fontSize: "9px",
+				color: "#888",
+				marginTop: "2px"
+			});
+
+			hdr.append(hdrTop, urlEl, metaEl);
+
+			const contentDiv = document.createElement("div");
+			Object.assign(contentDiv.style, {
+				display: "flex",
+				alignItems: "flex-start",
+				padding: "4px 0",
+				borderTop: "1px solid #1a1a1a",
+				fontFamily: "monospace",
+				fontSize: "11px",
+				color: "#ccc",
+				cursor: "pointer",
+				whiteSpace: "pre-wrap",
+				wordBreak: "break-all",
+				lineHeight: "1.6",
+			});
+
+			const lineNum = document.createElement("span");
+			lineNum.textContent = match.lineNumber; 
+			Object.assign(lineNum.style, {
+				color: "#555",
+				minWidth: "36px",
+				textAlign: "right",
+				paddingRight: "10px",
+				userSelect: "none",
+				flexShrink: "0",
+				borderRight: "1px solid #2a2a2a",
+				marginRight: "10px",
+				paddingTop: "0",
+			});
+
+			const codeEl = document.createElement("span");
+
+			let safeText = match.text
+				.replace(/&/g, "&amp;")
+				.replace(/</g, "&lt;")
+				.replace(/>/g, "&gt;");
+
+			const escapedQuery = this._useRegex ?
+				this._searchQuery :
+				this._searchQuery.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+			try {
+				const pattern = new RegExp(
+					"(" + escapedQuery + ")",
+					this._caseSensitive ? "g" : "gi"
+				);
+				safeText = safeText.replace(pattern,
+					'<mark style="background:#f9a825;color:#000;padding:0 2px;border-radius:2px;font-weight:bold;outline:1.5px solid #f57f17;">$1</mark>'
+				);
+			} catch (_) {}
+
+			codeEl.innerHTML = safeText;
+			Object.assign(codeEl.style, {
+				flex: "1",
+				paddingRight: "8px"
+			});
+
+			contentDiv.append(lineNum, codeEl);
+
+			contentDiv.onmouseover = () => contentDiv.style.background = "#1c2333";
+			contentDiv.onmouseout = () => contentDiv.style.background = "transparent";
+			contentDiv.onclick = () => {
+				navigator.clipboard.writeText(match.fullText || match.text);
+				contentDiv.style.background = "#1b3a1b";
+				setTimeout(() => contentDiv.style.background = "transparent", 700);
+			};
+
+			fileDiv.append(hdr, contentDiv);
+
+			return fileDiv;
+		},
+
+		renderCurrentMatchToContainer(container) {
+			container.innerHTML = "";
+			if (!this._allMatches.length) {
+				container.innerHTML = '<div style="color:#888;padding:20px;text-align:center;">No matches found</div>';
+				return;
+			}
+			const el = this._renderCurrentMatch();
+			if (el) container.appendChild(el);
+		},
+
+		search(query, caseSensitive = false, useRegex = false) {
+			if (!query.trim()) {
+				this.clearSearch();
+				return {
+					count: 0,
+					total: networkLog.length
+				};
+			}
+
+			this._searchQuery = query;
+			this._caseSensitive = caseSensitive;
+			this._useRegex = useRegex;
+
+			let pattern;
+			try {
+				pattern = this._buildSearchPattern(query);
+			} catch (e) {
+				return {
+					error: `Invalid regex: ${e.message}`,
+					count: 0,
+					total: networkLog.length
+				};
+			}
+
+			this._allMatches = [];
+
+			networkLog.forEach((req, reqIdx) => {
+				const fields = [{
+						name: 'url',
+						value: req.url
+					},
+					{
+						name: 'method',
+						value: req.method
+					},
+					{
+						name: 'type',
+						value: req.type
+					},
+					{
+						name: 'req-headers',
+						value: JSON.stringify(req.headers || {}, null, 2)
+					},
+					{
+						name: 'res-headers',
+						value: JSON.stringify(req.responseHeaders || {}, null, 2)
+					},
+					{
+						name: 'params',
+						value: JSON.stringify(req.params || {}, null, 2)
+					},
+					{
+						name: 'req-body',
+						value: typeof req.body === 'string' ? req.body : JSON.stringify(req.body || '', null, 2)
+					},
+					{
+						name: 'res-body',
+						value: typeof req.responseBody === 'string' ? req.responseBody : JSON.stringify(req.responseBody || '', null, 2)
+					},
+				];
+
+				fields.forEach(field => {
+					const lines = field.value.split('\n');
+
+					lines.forEach((line, lineIdx) => {
+						pattern.lastIndex = 0;
+						const matchResult = pattern.exec(line);
+						if (matchResult) {
+							const contextLen = 100;
+							const matchPos = matchResult.index;
+							const start = Math.max(0, matchPos - contextLen);
+							const end = Math.min(line.length, matchPos + matchResult[0].length + contextLen);
+							const snippet = (start > 0 ? "…" : "") +
+								line.substring(start, end) +
+								(end < line.length ? "…" : "");
+
+							this._allMatches.push({
+								reqIdx: reqIdx,
+								field: field.name,
+								text: snippet,
+								fullText: field.value,
+								lineNumber: lineIdx + 1,
+								matchPos: matchPos - start + (start > 0 ? 1 : 0),
+								matchLength: matchResult[0].length
+							});
+						}
+					});
+				});
+			});
+
+			this._currentMatchIdx = 0;
+
+			const uniqueRequests = [...new Set(this._allMatches.map(m => m.reqIdx))].length;
+
+			return {
+				count: this._allMatches.length,
+				total: networkLog.length,
+				uniqueRequests: uniqueRequests
+			};
+		},
+
+		clearSearch() {
+			this._searchQuery = "";
+			this._caseSensitive = false;
+			this._useRegex = false;
+			this._allMatches = [];
+			this._currentMatchIdx = 0;
+		},
+
+		navigatePrev() {
+			if (!this._allMatches.length) return null;
+			if (this._currentMatchIdx > 0) this._currentMatchIdx--;
+			return this._renderCurrentMatch();
+		},
+
+		navigateNext() {
+			if (!this._allMatches.length) return null;
+			if (this._currentMatchIdx < this._allMatches.length - 1) this._currentMatchIdx++;
+			return this._renderCurrentMatch();
+		},
+
+		getNavCounter() {
+			if (!this._allMatches.length) return "0 / 0";
+			return `${this._currentMatchIdx + 1} / ${this._allMatches.length}`;
+		},
+
+		async downloadAll() {
+
 			if (!networkLog.length) {
-				alert("No requests to download!");
+				alert("No requests to download.");
 				return;
 			}
 
-			const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+			const plugin = registry.find(p => p.id === "network");
 
-			networkLog.forEach((req, index) => {
-				const data = {
-					metadata: {
-						index: index + 1,
-						total: networkLog.length,
-						exportedAt: new Date().toISOString(),
-						panelVersion: VERSION
-					},
-					request: {
+			const {
+				indices
+			} = plugin?._getActiveLog?.() ?? {
+				indices: networkLog.map((_, i) => i)
+			};
+
+			const total = indices.length;
+
+			if (!confirm(`Export ${total} request${total === 1 ? "" : "s"}?`)) return;
+
+			const exportData = {
+				exportedAt: new Date().toISOString(),
+				panelVersion: typeof VERSION !== "undefined" ? VERSION : "unknown",
+				host: location.hostname,
+				totalCaptured: networkLog.length,
+				exported: total,
+
+				requests: indices.map(idx => {
+
+					const req = networkLog[idx];
+
+					return {
+						index: idx + 1,
 						method: req.method,
 						url: req.url,
 						type: req.type,
-						timestamp: req.timestamp,
-						time: new Date(req.timestamp).toLocaleString()
-					},
-					headers: {
-						request: req.headers || {},
-						response: req.responseHeaders || {}
-					},
-					params: req.params || {},
-					body: {
-						request: req.body || null,
-						response: req.responseBody || null
-					},
-					response: {
-						status: req.responseStatus || null,
-						statusText: req.responseStatusText || null,
-						contentType: req.responseContentType || null
-					},
-					timing: {
-						startTime: req.timestamp,
-						endTime: req.responseTimestamp || null,
-						duration: req.responseTimestamp ? (req.responseTimestamp - req.timestamp) : null
-					}
-				};
 
-				const blob = new Blob([JSON.stringify(data, null, 2)], {
-					type: 'application/json'
+						time: new Date(req.timestamp).toLocaleString(),
+						timestamp: req.timestamp,
+
+						params: req.params || {},
+
+						headers: {
+							request: req.headers || {},
+							response: req.responseHeaders || {}
+						},
+
+						body: {
+							request: req.body ?? null,
+							response: req.responseBody ?? null
+						},
+
+						response: {
+							status: req.responseStatus ?? null,
+							statusText: req.responseStatusText ?? null,
+							contentType: req.responseContentType ?? null
+						},
+
+						timing: {
+							startTime: req.timestamp ?? null,
+							endTime: req.responseTimestamp ?? null,
+							duration: req.responseTimestamp && req.timestamp ?
+								req.responseTimestamp - req.timestamp :
+								null
+						}
+					};
+
+				})
+			};
+
+			const json = JSON.stringify(exportData, null, 2);
+
+			try {
+
+				const blob = new Blob([json], {
+					type: "application/json"
 				});
+
 				const url = URL.createObjectURL(blob);
-				const a = document.createElement('a');
-				a.href = url;
-				a.download = `request-${String(index + 1).padStart(3, '0')}-${req.method}-${timestamp}.json`;
-				document.body.appendChild(a);
-				a.click();
-				document.body.removeChild(a);
-				URL.revokeObjectURL(url);
+
+				const win = window.open(url, "_blank");
+
+				if (!win) {
+					alert("Popup blocked by browser");
+					return;
+				}
+
+				setTimeout(() => {
+					URL.revokeObjectURL(url);
+				}, 10000);
+
+				const msg = `✓ Opened JSON export (${total} requests)`;
+
+				if (currentPlugin?.id === "network") {
+					textarea.value += `\n\n${msg}`;
+				}
+
+				return msg;
+
+			} catch (e) {
+
+				alert("Export failed: " + e.message);
+				return "Export failed";
+
+			}
+		},
+	});
+
+	registerPlugin({
+		id: "csp_analyzer",
+		label: "CSP Analyzer",
+		color: "#c0392b",
+
+		fetchData() {
+
+			if (!window.networkLog || !networkLog.length)
+				return "No network data.";
+
+			let csp = null;
+			let headersFound = null;
+
+			for (const req of networkLog) {
+
+				const headers = req.responseHeaders || req.headers || {};
+
+				if (typeof headers === "string") {
+					const m = headers.match(/content-security-policy:\s*([^\n]+)/i);
+					if (m) {
+						csp = m[1].trim();
+						headersFound = headers;
+						break;
+					}
+				}
+
+				if (headers["content-security-policy"]) {
+					csp = headers["content-security-policy"];
+					headersFound = headers;
+					break;
+				}
+
+				if (headers["Content-Security-Policy"]) {
+					csp = headers["Content-Security-Policy"];
+					headersFound = headers;
+					break;
+				}
+			}
+
+			if (!csp)
+				return "No CSP header detected.";
+
+			const directives = {};
+			const parts = csp.split(";").map(x => x.trim()).filter(Boolean);
+
+			parts.forEach(p => {
+				const [name, ...rest] = p.split(/\s+/);
+				directives[name] = rest;
 			});
 
-			return `Downloaded ${networkLog.length} files!`;
+			let out = "=== CSP DIRECTIVES ===\n\n";
+
+			Object.keys(directives).forEach(k => {
+				out += k + "\n";
+				directives[k].forEach(v => {
+					out += "  - " + v + "\n";
+				});
+				out += "\n";
+			});
+
+			out += "=== SECURITY ANALYSIS ===\n";
+
+			if (csp.includes("'unsafe-inline'"))
+				out += "⚠ unsafe-inline detected\n";
+
+			if (csp.includes("'unsafe-eval'"))
+				out += "⚠ unsafe-eval detected\n";
+
+			if (csp.includes("*"))
+				out += "⚠ wildcard source detected\n";
+
+			if (csp.includes("data:"))
+				out += "⚠ data: scheme allowed\n";
+
+			if (csp.includes("blob:"))
+				out += "⚠ blob: scheme allowed\n";
+
+			if (csp.includes("'strict-dynamic'"))
+				out += "✔ strict-dynamic enabled\n";
+
+			if (csp.includes("'nonce-"))
+				out += "✔ nonce based CSP\n";
+
+			if (!directives["object-src"])
+				out += "⚠ object-src not defined\n";
+
+			if (!directives["frame-ancestors"])
+				out += "⚠ frame-ancestors missing\n";
+
+			out += "\n=== THIRD PARTY DOMAINS ===\n";
+
+			const domains = new Set();
+
+			Object.values(directives).forEach(arr => {
+				arr.forEach(v => {
+					if (v.startsWith("http"))
+						domains.add(v);
+				});
+			});
+
+			if (domains.size === 0) {
+				out += "None\n";
+			} else {
+				domains.forEach(d => {
+					out += d + "\n";
+				});
+			}
+
+			out += "\n=== SECURITY HEADERS ===\n";
+
+			if (headersFound) {
+
+				const check = [
+					"strict-transport-security",
+					"x-frame-options",
+					"x-content-type-options",
+					"referrer-policy",
+					"permissions-policy"
+				];
+
+				check.forEach(h => {
+					const v = headersFound[h] || headersFound[h.toLowerCase()];
+					if (v) out += `${h}: ${v}\n`;
+				});
+
+				if (headersFound["server"])
+					out += `server: ${headersFound["server"]}\n`;
+
+				if (headersFound["x-powered-by"])
+					out += `powered-by: ${headersFound["x-powered-by"]}\n`;
+			}
+
+			return out;
 		}
+	});
+
+	registerPlugin({
+		id: "get_html",
+		label: "Get HTML",
+		color: "#8e44ad",
+
+		async fetchData() {
+
+			function waitRender() {
+				return new Promise(resolve => {
+					let last = Date.now();
+
+					const obs = new MutationObserver(() => {
+						last = Date.now();
+					});
+
+					obs.observe(document.documentElement, {
+						childList: true,
+						subtree: true,
+						attributes: true
+					});
+
+					const check = setInterval(() => {
+						if (Date.now() - last > 2000) {
+							clearInterval(check);
+							obs.disconnect();
+							resolve();
+						}
+					}, 500);
+				});
+			}
+
+			await waitRender();
+
+			const html = "<!DOCTYPE html>\n" + document.documentElement.outerHTML;
+
+			const blob = new Blob([html], {
+				type: "text/html"
+			});
+			const url = URL.createObjectURL(blob);
+
+			const a = document.createElement("a");
+			a.href = url;
+			a.download = "rendered_page.html";
+			document.body.appendChild(a);
+			a.click();
+
+			setTimeout(() => {
+				URL.revokeObjectURL(url);
+				a.remove();
+			}, 1000);
+
+			setTimeout(() => {
+				if (window.showMenu) window.showMenu();
+			}, 1200);
+
+			return "Downloading rendered HTML...";
+		}
+	});
+
+	registerPlugin({
+		id: "script_dependency_viewer",
+		label: "Script Dependency Viewer",
+		color: "#3498db",
+
+		fetchData() {
+
+			const scripts = Array.from(document.querySelectorAll("script"));
+			const links = Array.from(document.querySelectorAll("link[rel='stylesheet']"));
+
+			let out = "=== SCRIPT DEPENDENCIES ===\n";
+
+			if (!scripts.length) {
+				out += "No scripts found\n";
+			} else {
+				scripts.forEach((s, i) => {
+					const src = s.src || "[inline script]";
+					out += `${i+1}. ${src}\n`;
+				});
+			}
+
+			out += "\n=== STYLESHEETS ===\n";
+
+			if (!links.length) {
+				out += "No stylesheets found\n";
+			} else {
+				links.forEach((l, i) => {
+					out += `${i+1}. ${l.href}\n`;
+				});
+			}
+
+			out += "\n=== RESOURCE SUMMARY ===\n";
+			out += `scripts: ${scripts.length}\n`;
+			out += `stylesheets: ${links.length}\n`;
+
+			try {
+
+				const resources = performance.getEntriesByType("resource");
+
+				const js = resources.filter(r => r.initiatorType === "script").length;
+				const css = resources.filter(r => r.initiatorType === "link").length;
+
+				out += `network js resources: ${js}\n`;
+				out += `network css resources: ${css}\n`;
+
+			} catch (e) {}
+
+			return out;
+		}
+	});
+
+	registerPlugin({
+		id: "performance_snapshot",
+		label: "Performance Snapshot",
+		color: "#27ae60",
+
+		fetchData() {
+
+			if (!window.performance)
+				return "Performance API not supported.";
+
+			const nav = performance.getEntriesByType("navigation")[0];
+			const resources = performance.getEntriesByType("resource");
+
+			let out = "=== PERFORMANCE SNAPSHOT ===\n";
+
+			if (nav) {
+				out += `\nDOMContentLoaded: ${Math.round(nav.domContentLoadedEventEnd)} ms\n`;
+				out += `Load Event: ${Math.round(nav.loadEventEnd)} ms\n`;
+				out += `First Byte: ${Math.round(nav.responseStart)} ms\n`;
+			}
+
+			const paint = performance.getEntriesByType("paint");
+
+			paint.forEach(p => {
+				out += `${p.name}: ${Math.round(p.startTime)} ms\n`;
+			});
+
+			out += `\nTotal Requests: ${resources.length}\n`;
+
+			let js = 0,
+				css = 0,
+				img = 0,
+				fetch = 0;
+
+			resources.forEach(r => {
+				if (r.initiatorType === "script") js++;
+				if (r.initiatorType === "link") css++;
+				if (r.initiatorType === "img") img++;
+				if (r.initiatorType === "fetch" || r.initiatorType === "xmlhttprequest") fetch++;
+			});
+
+			out += `JS files: ${js}\n`;
+			out += `CSS files: ${css}\n`;
+			out += `Images: ${img}\n`;
+			out += `API calls: ${fetch}\n`;
+
+			let size = 0;
+
+			resources.forEach(r => {
+				if (r.transferSize) size += r.transferSize;
+			});
+
+			out += `\nTransfer Size: ${(size/1024).toFixed(1)} KB\n`;
+
+			return out;
+		}
+	});
+
+	registerPlugin({
+		id: "websocket_sniffer",
+		label: "WebSocket Sniffer",
+		color: "#2bb3ff",
+
+		init() {
+
+			if (window.__wsSnifferInstalled) return;
+			window.__wsSnifferInstalled = true;
+
+			window.wsLog = [];
+
+			const OriginalWS = window.WebSocket;
+
+			window.WebSocket = function(url, protocols) {
+
+				const ws = protocols ? new OriginalWS(url, protocols) : new OriginalWS(url);
+
+				const entry = {
+					url,
+					messages: []
+				};
+
+				window.wsLog.push(entry);
+
+				const origSend = ws.send;
+
+				ws.send = function(data) {
+
+					entry.messages.push({
+						type: "send",
+						data: typeof data === "string" ? data : "[binary]"
+					});
+
+					return origSend.apply(this, arguments);
+				};
+
+				ws.addEventListener("message", (event) => {
+
+					entry.messages.push({
+						type: "receive",
+						data: typeof event.data === "string" ? event.data : "[binary]"
+					});
+
+				});
+
+				return ws;
+			};
+
+		},
+
+		fetchData() {
+
+			if (!window.wsLog || wsLog.length === 0)
+				return "No WebSocket activity.";
+
+			let out = "=== WEBSOCKET CONNECTIONS ===\n";
+
+			wsLog.forEach((conn, i) => {
+
+				out += `\n[${i+1}] ${conn.url}\n`;
+
+				conn.messages.forEach(m => {
+					out += `  ${m.type === "send" ? "→" : "←"} ${m.data}\n`;
+				});
+
+			});
+
+			return out;
+		}
+	});
+
+	registerPlugin({
+		id: "api_mapper",
+		label: "API Mapper+",
+		color: "#8b3dff",
+
+		fetchData() {
+			const logs = typeof networkLog !== "undefined" && Array.isArray(networkLog) ?
+				networkLog : [];
+
+			if (!logs.length) return "No network data.";
+
+			const domainMap = {};
+			const pathTree = {};
+			const queryList = [];
+			const errorList = [];
+			const methodCount = {};
+			const typeCount = {};
+			const slowList = [];
+			const uniqueIPs = new Set();
+
+			logs.forEach(req => {
+				if (!req?.url) return;
+				try {
+					const url = new URL(req.url, location.origin);
+					const domain = url.hostname;
+					const method = (req.method || "GET").toUpperCase();
+					const path = url.pathname;
+					const query = url.search || "";
+					const status = req.responseStatus ?? null;
+					const type = (req.type || "fetch").toLowerCase();
+					const duration = req.responseTimestamp && req.timestamp ?
+						req.responseTimestamp - req.timestamp : null;
+					const ct = (req.responseContentType || "").split(";")[0].trim() || "unknown";
+
+					methodCount[method] = (methodCount[method] || 0) + 1;
+					typeCount[type] = (typeCount[type] || 0) + 1;
+
+					if (!domainMap[domain]) domainMap[domain] = {};
+					const key = `${method} ${path}${query}`;
+					if (!domainMap[domain][key]) {
+						domainMap[domain][key] = {
+							method,
+							path,
+							query,
+							count: 0,
+							statuses: [],
+							durations: [],
+							contentTypes: new Set(),
+						};
+					}
+					const entry = domainMap[domain][key];
+					entry.count++;
+					if (status !== null) entry.statuses.push(status);
+					if (duration !== null) entry.durations.push(duration);
+					entry.contentTypes.add(ct);
+
+					const parts = path.split("/").filter(Boolean);
+					let node = pathTree;
+					parts.forEach(p => {
+						if (!node[p]) node[p] = {};
+						node = node[p];
+					});
+
+					if (query) queryList.push({
+						method,
+						path,
+						query,
+						status,
+						duration
+					});
+
+					if (status !== null && (status === 0 || status >= 400)) {
+						errorList.push({
+							method,
+							path: path + query,
+							domain,
+							status,
+							duration
+						});
+					}
+
+					if (duration !== null && duration > 2000) {
+						slowList.push({
+							method,
+							url: req.url,
+							duration,
+							status
+						});
+					}
+				} catch (_) {}
+			});
+
+			const avg = arr => arr.length ?
+				Math.round(arr.reduce((a, b) => a + b, 0) / arr.length) : null;
+
+			const statusLabel = s => {
+				if (s === 0) return "ERR";
+				if (s >= 500) return `${s} ✗`;
+				if (s >= 400) return `${s} ✗`;
+				if (s >= 300) return `${s} ↗`;
+				if (s >= 200) return `${s} ✓`;
+				return `${s}`;
+			};
+
+			function renderTree(node, prefix = "") {
+				let out = "";
+				const keys = Object.keys(node);
+				keys.forEach((k, i) => {
+					const last = i === keys.length - 1;
+					out += `${prefix}${last ? "└" : "├"}─ ${k}\n`;
+					out += renderTree(node[k], prefix + (last ? "   " : "│  "));
+				});
+				return out;
+			}
+
+			const totalReqs = logs.length;
+			const uniqueDomains = Object.keys(domainMap).length;
+			const uniqueEndpoints = Object.values(domainMap)
+				.reduce((a, d) => a + Object.keys(d).length, 0);
+
+			const allDurations = logs
+				.filter(r => r.responseTimestamp && r.timestamp)
+				.map(r => r.responseTimestamp - r.timestamp);
+			const avgAll = avg(allDurations);
+			const maxAll = allDurations.length ? Math.max(...allDurations) : null;
+
+			let out = "=== API MAPPER+ ===\n\n";
+			out += `Total Requests  : ${totalReqs}\n`;
+			out += `Unique Domains  : ${uniqueDomains}\n`;
+			out += `Unique Endpoints: ${uniqueEndpoints}\n`;
+			out += `Errors (4xx/5xx): ${errorList.length}\n`;
+			out += `Slow (>2s)      : ${slowList.length}\n`;
+			out += `Methods         : ${Object.entries(methodCount).map(([k,v]) => `${k}×${v}`).join("  ")}\n`;
+			out += `Types           : ${Object.entries(typeCount).map(([k,v]) => `${k}×${v}`).join("  ")}\n`;
+			if (avgAll !== null) out += `Avg Duration    : ${avgAll}ms  (max: ${maxAll}ms)\n`;
+
+			out += "\n\n=== DOMAIN GROUPING ===\n";
+			Object.keys(domainMap).sort().forEach(domain => {
+				const entries = Object.values(domainMap[domain]);
+				entries.sort((a, b) => b.count - a.count);
+				out += `\n▸ ${domain} (${entries.length} endpoint${entries.length > 1 ? "s" : ""})\n`;
+				entries.forEach(e => {
+					const statuses = [...new Set(e.statuses)].map(statusLabel).join(", ") || "pending";
+					const avgMs = avg(e.durations);
+					const ct = [...e.contentTypes].filter(c => c !== "unknown").join(", ") || "";
+					out += `  ${e.method.padEnd(7)} ${e.path}${e.query}\n`;
+					out += `    hits:${e.count}  status:[${statuses}]`;
+					if (avgMs !== null) out += `  avg:${avgMs}ms`;
+					if (ct) out += `  type:${ct}`;
+					out += "\n";
+				});
+			});
+
+			out += "\n=== ENDPOINT TREE ===\n/\n";
+			out += renderTree(pathTree);
+
+			out += "\n=== ENDPOINTS WITH QUERY PARAMS ===\n";
+			if (queryList.length) {
+				const seen = new Set();
+				queryList.forEach(q => {
+					const key = `${q.method} ${q.path}${q.query}`;
+					if (seen.has(key)) return;
+					seen.add(key);
+					const s = q.status !== null ? `  [${statusLabel(q.status)}]` : "";
+					const d = q.duration !== null ? `  ${q.duration}ms` : "";
+					out += `  ${q.method.padEnd(7)} ${q.path}${q.query}${s}${d}\n`;
+				});
+			} else {
+				out += "  None\n";
+			}
+
+			out += "\n=== FAILED REQUESTS (4xx / 5xx / ERR) ===\n";
+			if (errorList.length) {
+				errorList.forEach(e => {
+					const d = e.duration !== null ? `  ${e.duration}ms` : "";
+					out += `  [${statusLabel(e.status)}] ${e.method.padEnd(7)} ${e.domain}${e.path}${d}\n`;
+				});
+			} else {
+				out += "  None ✓\n";
+			}
+
+			out += "\n=== SLOW REQUESTS (>2000ms) ===\n";
+			if (slowList.length) {
+				slowList
+					.sort((a, b) => b.duration - a.duration)
+					.forEach(r => {
+						const s = r.status !== null ? `  [${statusLabel(r.status)}]` : "";
+						out += `  ${r.duration}ms  ${r.method.padEnd(7)} ${r.url}${s}\n`;
+					});
+			} else {
+				out += "  None ✓\n";
+			}
+
+			const jsPatterns = [
+				/(?:\/(?:api|v\d+|rest|gql|graphql|rpc|service|endpoint|backend)(?:\/[a-zA-Z0-9_\-]+)+)/g,
+				/["'`](\/[a-zA-Z0-9_\-]+(?:\/[a-zA-Z0-9_\-]+){2,})["'`]/g,
+			];
+			const found = new Set();
+			document.querySelectorAll("script").forEach(s => {
+				const text = s.textContent || "";
+				jsPatterns.forEach(r => {
+					r.lastIndex = 0;
+					let m;
+					while ((m = r.exec(text)) !== null) {
+						const val = m[1] || m[0];
+						if (val && val.length > 4) found.add(val);
+					}
+				});
+			});
+			out += "\n=== HIDDEN API (JS SCAN) ===\n";
+			out += found.size ?
+				Array.from(found).sort().map(x => `  ${x}`).join("\n") + "\n" :
+				"  None\n";
+
+			return out.trim();
+		},
 	});
 
 	function makeBtn(label, bg) {
@@ -1079,7 +2023,7 @@
 
 	const searchInput = document.createElement("input");
 	searchInput.type = "text";
-	searchInput.placeholder = "Search in all resources (JS, HTML, CSS)...";
+	searchInput.placeholder = "Search...";
 	Object.assign(searchInput.style, {
 		flex: "1",
 		padding: "8px",
@@ -1145,7 +2089,7 @@
 		padding: "4px",
 		background: "#1e1e1e"
 	});
-
+    
 	const searchBtnRow = document.createElement("div");
 	Object.assign(searchBtnRow.style, {
 		display: "none",
@@ -1154,18 +2098,48 @@
 		background: "#1e1e1e"
 	});
 
-	const btnBack = makeBtn("Back", "#444");
-	const btnRefresh = makeBtn("Refresh", "#444");
-	const btnCopy = makeBtn("Copy", "#444");
-	const btnDownloadAll = makeBtn("⬇️ Download", "#2e7d32");
 	const btnSearchBack = makeBtn("Back", "#444");
 	const btnClearSearch = makeBtn("Clear", "#444");
 	const btnCopySearch = makeBtn("Copy Results", "#444");
 
-	actionBtnRow.append(btnBack, btnRefresh, btnCopy, btnDownloadAll);
 	searchBtnRow.append(btnSearchBack, btnClearSearch, btnCopySearch);
+    
+	const networkSearchBtnRow = document.createElement("div");
+	Object.assign(networkSearchBtnRow.style, {
+		display: "none",
+		gap: "4px",
+		padding: "4px",
+		background: "#1e1e1e"
+	});
+
+	const btnNetworkBack = makeBtn("Back", "#444");
+	const btnNetworkClear = makeBtn("Clear", "#444");
+	const btnNetworkPrev = makeBtn("◀ Prev", "#37474f");
+	const btnNetworkNext = makeBtn("Next ▶", "#37474f");
+	const networkNavCounter = document.createElement("span");
+	Object.assign(networkNavCounter.style, {
+		color: "#aaa",
+		fontSize: "11px",
+		fontFamily: "monospace",
+		alignSelf: "center",
+		minWidth: "60px",
+		textAlign: "center",
+		flexShrink: "0",
+	});
+	networkNavCounter.textContent = "0 / 0";
+
+	networkSearchBtnRow.append(btnNetworkBack, btnNetworkClear, btnNetworkPrev, networkNavCounter, btnNetworkNext);
+
+	const btnBack = makeBtn("Back", "#444");
+	const btnRefresh = makeBtn("Refresh", "#444");
+	const btnCopy = makeBtn("Copy", "#444");
+	const btnDownloadAll = makeBtn("⬇️ Download", "#2e7d32");
+	const btnNetworkSearch = makeBtn("🔍 Search", "#6a1b9a");
+
+	actionBtnRow.append(btnBack, btnRefresh, btnCopy, btnDownloadAll, btnNetworkSearch);
 
 	let currentPlugin = null;
+	let isNetworkSearchMode = false;
 
 	function renderPluginButtons() {
 		while (mainBtnRow.firstChild) mainBtnRow.removeChild(mainBtnRow.firstChild);
@@ -1173,6 +2147,7 @@
 			const btn = makeBtn(plugin.label, plugin.color);
 			btn.onclick = async () => {
 				currentPlugin = plugin;
+				isNetworkSearchMode = false;
 				showActionButtons();
 				textarea.value = "Loading...";
 				try {
@@ -1185,7 +2160,7 @@
 			mainBtnRow.appendChild(btn);
 		});
 		const btnSearch = makeBtn("🔍 Search", "#6a1b9a");
-		btnSearch.onclick = showSearchMode;
+		btnSearch.onclick = showGlobalSearchMode;
 		mainBtnRow.appendChild(btnSearch);
 	}
 
@@ -1193,33 +2168,166 @@
 		mainBtnRow.style.display = "flex";
 		actionBtnRow.style.display = "none";
 		searchBtnRow.style.display = "none";
+		networkSearchBtnRow.style.display = "none";
 		textarea.style.display = "none";
 		searchContainer.style.display = "none";
+		searchResults.style.display = "none";
 		textarea.value = "";
 		currentPlugin = null;
+		isNetworkSearchMode = false;
 	}
 
 	function showActionButtons() {
 		mainBtnRow.style.display = "none";
 		actionBtnRow.style.display = "flex";
 		searchBtnRow.style.display = "none";
+		networkSearchBtnRow.style.display = "none";
 		textarea.style.display = "block";
 		searchContainer.style.display = "none";
+		searchResults.style.display = "none";
+		btnNetworkSearch.style.display = currentPlugin?.id === "network" ? "" : "none";
+		isNetworkSearchMode = false;
 	}
 
-	function showSearchMode() {
+	function showGlobalSearchMode() {
 		mainBtnRow.style.display = "none";
 		actionBtnRow.style.display = "none";
 		searchBtnRow.style.display = "flex";
+		networkSearchBtnRow.style.display = "none";
 		textarea.style.display = "none";
 		searchContainer.style.display = "flex";
+		searchResults.style.display = "block";
+        
+		const networkResultsDiv = document.getElementById("network-search-results");
+		if (networkResultsDiv) networkResultsDiv.style.display = "none";
+
 		currentPlugin = null;
+		searchStatus.textContent = "Ready to search";
+		searchInput.focus();
+
+		searchExecBtn.onclick = performGlobalSearch;
+		btnSearchBack.onclick = () => {
+			searchInput.value = "";
+			searchResults.innerHTML = "";
+			searchStatus.textContent = "Ready to search";
+			showMainButtons();
+		};
+	}
+
+
+	function showNetworkSearchMode() {
+		mainBtnRow.style.display = "none";
+		actionBtnRow.style.display = "none";
+		searchBtnRow.style.display = "none";
+		networkSearchBtnRow.style.display = "flex";
+		searchContainer.style.display = "flex";
+		textarea.style.display = "none";
+		searchResults.style.display = "none";
+        
+		let networkResultsDiv = document.getElementById("network-search-results");
+		if (!networkResultsDiv) {
+			networkResultsDiv = document.createElement("div");
+			networkResultsDiv.id = "network-search-results";
+			Object.assign(networkResultsDiv.style, {
+				flex: "1",
+				overflow: "auto",
+				background: "#111",
+				padding: "5px",
+				fontSize: "11px",
+				display: "none"
+			});
+			content.appendChild(networkResultsDiv);
+		}
+		networkResultsDiv.style.display = "block";
+
+		const networkPlugin = registry.find(p => p.id === "network");
+		updateNetworkNav(networkPlugin);
+
+		searchExecBtn.onclick = () => {
+			const query = searchInput.value.trim();
+			if (!networkPlugin || !query) return;
+
+			const result = networkPlugin.search(query, caseSensitive, useRegex);
+
+			if (result.error) {
+				searchStatus.textContent = `Error: ${result.error}`;
+				networkResultsDiv.innerHTML = `<div style="color:#ff4444;padding:20px;text-align:center;">${result.error}</div>`;
+				networkNavCounter.textContent = "0 / 0";
+				return;
+			}
+
+			if (result.count === 0) {
+				searchStatus.textContent = `No matches in ${result.total} requests`;
+				networkResultsDiv.innerHTML = '<div style="color:#888;padding:20px;text-align:center;">No matches found</div>';
+				networkNavCounter.textContent = "0 / 0";
+			} else {
+				searchStatus.textContent = `Found ${result.count} matches in ${result.uniqueRequests} requests`;
+				networkPlugin.renderCurrentMatchToContainer(networkResultsDiv);
+				networkNavCounter.textContent = networkPlugin.getNavCounter();
+			}
+
+			updateNetworkNav(networkPlugin);
+		};
+        
+		btnNetworkPrev.onclick = () => {
+			if (!networkPlugin) return;
+			const success = networkPlugin.navigatePrev();
+			if (success !== null) {
+				networkPlugin.renderCurrentMatchToContainer(networkResultsDiv);
+				networkNavCounter.textContent = networkPlugin.getNavCounter();
+				updateNetworkNav(networkPlugin);
+			}
+		};
+        
+		btnNetworkNext.onclick = () => {
+			if (!networkPlugin) return;
+			const success = networkPlugin.navigateNext();
+			if (success !== null) {
+				networkPlugin.renderCurrentMatchToContainer(networkResultsDiv);
+				networkNavCounter.textContent = networkPlugin.getNavCounter();
+				updateNetworkNav(networkPlugin);
+			}
+		};
+
+		btnNetworkBack.onclick = () => {
+			networkPlugin?.clearSearch();
+			searchInput.value = "";
+			networkResultsDiv.innerHTML = "";
+			networkResultsDiv.style.display = "none";
+			networkNavCounter.textContent = "0 / 0";
+			searchStatus.textContent = "Ready to search";
+			showActionButtons();
+			if (currentPlugin) {
+				textarea.value = currentPlugin.fetchData();
+			}
+		};
+
+		btnNetworkClear.onclick = () => {
+			networkPlugin?.clearSearch();
+			searchInput.value = "";
+			networkResultsDiv.innerHTML = "";
+			networkNavCounter.textContent = "0 / 0";
+			searchStatus.textContent = "Ready to search";
+			updateNetworkNav(networkPlugin);
+			searchInput.focus();
+		};
+
 		searchInput.focus();
 	}
 
-	btnBack.onclick = showMainButtons;
-	btnSearchBack.onclick = showMainButtons;
+	function updateNetworkNav(plugin) {
+		const hasMatches = plugin && plugin._allMatches && plugin._allMatches.length > 0;
+		const current = hasMatches ? plugin._currentMatchIdx : -1;
+		const total = hasMatches ? plugin._allMatches.length : 0;
 
+		btnNetworkPrev.disabled = !hasMatches || current <= 0;
+		btnNetworkNext.disabled = !hasMatches || current >= total - 1;
+
+		btnNetworkPrev.style.opacity = btnNetworkPrev.disabled ? "0.35" : "1";
+		btnNetworkNext.style.opacity = btnNetworkNext.disabled ? "0.35" : "1";
+	}
+
+	btnBack.onclick = showMainButtons;
 	btnRefresh.onclick = async () => {
 		if (currentPlugin) {
 			textarea.value = "Loading...";
@@ -1251,6 +2359,8 @@
 			setTimeout(() => (btnDownloadAll.textContent = "⬇️ Download"), 2000);
 		}
 	};
+
+	btnNetworkSearch.onclick = showNetworkSearchMode;
 
 	btnClearSearch.onclick = () => {
 		searchInput.value = "";
@@ -1509,7 +2619,7 @@
 		if (e.key === "Enter") performGlobalSearch();
 	};
 
-	panel.append(header, content, mainBtnRow, actionBtnRow, searchBtnRow);
+	panel.append(header, content, mainBtnRow, actionBtnRow, searchBtnRow, networkSearchBtnRow);
 	document.body.appendChild(panel);
 	renderPluginButtons();
 
@@ -1559,7 +2669,7 @@
 			prevHeight = panel.style.height;
 			panel.style.height = "40px";
 			content.style.display = "none";
-			mainBtnRow.style.display = actionBtnRow.style.display = searchBtnRow.style.display = "none";
+			mainBtnRow.style.display = actionBtnRow.style.display = searchBtnRow.style.display = networkSearchBtnRow.style.display = "none";
 			minimized = true;
 			minimizeBtn.textContent = "+";
 		} else {
@@ -1584,219 +2694,5 @@
 		if (now - lastTap < 300) toggleMin();
 		lastTap = now;
 	});
-
-	registerPlugin({
-		id: "cf-intercept",
-		label: "🛡️ CF Intercept",
-		color: "#e65100",
-
-		captured: [],
-		hooked: false,
-
-		autoDownload(data) {
-			try {
-				const json = JSON.stringify(data, null, 2);
-				const blob = new Blob([json], {
-					type: "application/json"
-				});
-				const url = URL.createObjectURL(blob);
-				const a = document.createElement("a");
-				a.href = url;
-				a.download = "sitekey-" + location.hostname + "-" + Date.now() + ".json";
-				document.body.appendChild(a);
-				a.click();
-				setTimeout(() => {
-					URL.revokeObjectURL(url);
-					a.remove();
-				}, 1000);
-			} catch (_) {}
-		},
-
-		installHook() {
-			if (this.hooked) return;
-			this.hooked = true;
-			const self = this;
-
-			const push = (entry) => {
-				if (self.captured.find(c => c.sitekey === entry.sitekey)) return;
-				self.captured.push(entry);
-				self.autoDownload({
-					host: location.hostname,
-					url: location.href,
-					capturedAt: new Date().toISOString(),
-					entries: self.captured
-				});
-			};
-
-			const scanDOM = () => {
-				document.querySelectorAll(".cf-turnstile, [data-sitekey], iframe[src*=\"turnstile\"]").forEach(el => {
-					const sk = el.getAttribute("data-sitekey") || el.dataset?.sitekey ||
-						(el.src && el.src.match(/sitekey=([^&]+)/)?.[1]);
-					if (sk) push({
-						type: "dom",
-						sitekey: sk,
-						action: el.getAttribute("data-action") || "",
-						source: "dom-scan",
-						time: Date.now()
-					});
-				});
-			};
-
-			const scanNetwork = () => {
-				for (const entry of networkLog) {
-					if (!entry.responseBody || typeof entry.responseBody !== "string") continue;
-					const text = entry.responseBody;
-					const patterns = [
-						/['"](0x[0-9A-Za-z_\-]{20,})['"]/g,
-						/['"](1x[0-9A-Za-z_\-]{20,})['"]/g,
-						/sitekey['"\s:]+['"]([0-9A-Za-z_\-]{20,})['"]/g,
-					];
-					for (const pat of patterns) {
-						let m;
-						while ((m = pat.exec(text)) !== null) {
-							push({
-								type: "network-intercept",
-								sitekey: m[1],
-								source: entry.url,
-								time: Date.now()
-							});
-						}
-					}
-				}
-			};
-
-			const hookTurnstile = () => {
-				if (window.turnstile && !window.turnstile.__wpHooked) {
-					const orig = window.turnstile.render.bind(window.turnstile);
-					window.turnstile.render = function(container, params) {
-						if (params?.sitekey) push({
-							type: "turnstile-render",
-							sitekey: params.sitekey,
-							action: params.action || "",
-							cData: params.cData || null,
-							execution: params.execution || null,
-							source: "turnstile.render()",
-							time: Date.now()
-						});
-						return orig(container, params);
-					};
-					window.turnstile.__wpHooked = true;
-				}
-			};
-
-			scanDOM();
-			scanNetwork();
-			hookTurnstile();
-
-			const poll = setInterval(() => {
-				scanDOM();
-				scanNetwork();
-				hookTurnstile();
-			}, 200);
-			setTimeout(() => clearInterval(poll), 30000);
-
-			new MutationObserver(() => {
-					scanDOM();
-					scanNetwork();
-				})
-				.observe(document.documentElement, {
-					childList: true,
-					subtree: true
-				});
-		},
-
-		fetchData() {
-			this.installHook();
-
-			if (!this.captured.length) {
-				const cfOpt = window._cf_chl_opt;
-				if (cfOpt) {
-					return "CF Challenge terdeteksi:\n\nZone : " + cfOpt.cZone + "\nRay  : " + cfOpt.cRay + "\nType : " + cfOpt.cType + "\n\n⏳ Menunggu orchestrate script load...\nKlik Refresh dalam 2-3 detik.";
-				}
-				return "Belum ada sitekey tertangkap.\n\nBuka halaman CF challenge lalu klik plugin ini.";
-			}
-
-			let out = "=== CAPTURED (" + this.captured.length + ") ===\n\n";
-			this.captured.forEach((c, i) => {
-				out += "[" + (i + 1) + "] " + c.type + "\n";
-				out += "  Sitekey : " + c.sitekey + "\n";
-				out += "  Action  : " + (c.action || "(none)") + "\n";
-				out += "  Source  : " + c.source + "\n";
-				out += "  Time    : " + new Date(c.time).toLocaleTimeString() + "\n\n";
-			});
-			out += "✅ File JSON sudah otomatis didownload.";
-			return out;
-		},
-
-		async execute() {
-			if (!this.captured.length) return "Belum ada sitekey!";
-			const last = this.captured[this.captured.length - 1];
-			if (!window.turnstile) return "turnstile library tidak tersedia.";
-			const self = this;
-
-			return new Promise((resolve) => {
-				const overlay = document.createElement("div");
-				overlay.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:999998";
-				const box = document.createElement("div");
-				box.style.cssText = "position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:999999;background:#fff;padding:28px;border-radius:12px;box-shadow:0 10px 40px rgba(0,0,0,.4);min-width:300px;text-align:center;font-family:monospace";
-				const title = document.createElement("div");
-				title.style.cssText = "font-weight:bold;margin-bottom:12px;font-size:14px";
-				title.textContent = "Solving Turnstile...";
-				const status = document.createElement("div");
-				status.style.cssText = "font-size:11px;color:#666;margin:10px 0";
-				status.textContent = "Rendering...";
-				const ctnr = document.createElement("div");
-				ctnr.style.margin = "16px 0";
-				const cancelBtn = document.createElement("button");
-				cancelBtn.textContent = "Cancel";
-				cancelBtn.style.cssText = "border:none;background:#e53935;color:#fff;cursor:pointer;padding:6px 16px;border-radius:6px;margin-top:8px";
-				box.append(title, ctnr, status, cancelBtn);
-				document.body.append(overlay, box);
-
-				let done = false;
-				const finish = (msg) => {
-					if (done) return;
-					done = true;
-					overlay.remove();
-					box.remove();
-					resolve(msg);
-				};
-				cancelBtn.onclick = () => finish("Dibatalkan.");
-				const timer = setTimeout(() => finish("Timeout."), 120000);
-
-				try {
-					window.turnstile.render(ctnr, {
-						sitekey: last.sitekey,
-						action: last.action || undefined,
-						theme: "light",
-						callback: (token) => {
-							clearTimeout(timer);
-							status.innerHTML = "<span style=\"color:green\">✓ Success!</span>";
-							self.autoDownload({
-								host: location.hostname,
-								solvedAt: new Date().toISOString(),
-								sitekey: last.sitekey,
-								token
-							});
-							setTimeout(() => finish("TOKEN:\n" + token), 800);
-						},
-						"error-callback": (err) => {
-							clearTimeout(timer);
-							setTimeout(() => finish("ERROR: " + err), 1500);
-						},
-					});
-				} catch (e) {
-					clearTimeout(timer);
-					finish("EXCEPTION: " + e.message);
-				}
-			});
-		},
-
-		clear() {
-			this.captured = [];
-			return "Cleared.";
-		}
-	});
-
 
 })();
